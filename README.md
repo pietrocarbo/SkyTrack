@@ -3,7 +3,7 @@ A WebGL implementation of a supercar drive/race experience around a fictional ci
 
 ![Image with circuit view](https://github.com/pietrocarbo/SkyTrack/blob/master/Capture3.PNG)
 
-![Image with car view](hhttps://github.com/pietrocarbo/SkyTrack/blob/master/Capture2.PNG)
+![Image with car view](https://github.com/pietrocarbo/SkyTrack/blob/master/Capture2.PNG)
 
 ## Usage
 
