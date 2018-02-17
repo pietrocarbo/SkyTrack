@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<title>Progetto Battilana</title>
+	<meta charset="utf-8"/>
+	<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+	<style>
+		body { background-color: #8f896e; margin: 0px; padding: 0px; overflow: hidden }
+	</style>
+	<script type="text/javascript" src="libs/three.js"></script>
+	<script type="text/javascript" src="libs/BinaryLoader.js"></script>
+	<script type="text/javascript" src="libs/dat.gui.js"></script>
+	<script type="text/javascript" src="libs/stats.js"></script>
+	<script type="text/javascript" src="libs/helvetiker_bold.typeface.js"></script>
+    <script type="text/javascript" src="libs/helvetiker_regular.typeface.js"></script>
+    <script type="text/javascript" src="libs/TextGeometry.js"></script>
+</head>
+
+<body onload="main()">
+	<!-- Contenitore Statistiche FPS-MS -->
+	<div id="info" style="position: absolute; bottom: 0px; right: 0px; z-index: 200;"></div>
+	<!-- Contenitore contatore velocita' dat.GUI -->
+	<div id="info2" style="position: absolute; bottom: 0px; left: 0px; z-index: 200;"></div>
+	<!-- Introduzione e spiegazione comandi -->
+	<div id="loading">
+		<h1 style="text-align: center; font-family: Tahoma;">Sky Track Driving Simulator</h1>
+		<div style="position: absolute; margin: auto; top: 0; left: 0; right: 0; bottom:0; width: 350px;
+						border: 2px; height: 500px; font-family: 'Lucida Console', Monaco, monospace;
+						text-align: center; line-height: 150%; border-style: dotted;">
+			Caricamento in corso...<br> <br>
+			<div style="background-color: #df3939; font-size: 150%; padding: 2px;">
+				COMANDI TASTIERA <br>
+			<ul> <div style="text-align: left;">
+				<li> W Accelerazione </li>
+				<li> S Freno </li>
+				<li> A Sterzo sinistra </li>
+				<li> D Sterzo destra </li>
+				<li> 1 Visuale numero 1 </li>
+				<li> 2 Visuale numero 2 </li>
+				<li> 3 Visuale numero 3 </li>
+				<li> 4 Visuale numero 4 </li>
+				<li> Q musica on/off </li>
+				<br> </div>
+			</ul> </div> <br> <br>
+			<button style="height: 50px;" onclick="gameOn();">Clicca QUI per giocare</button>
+		</div>
+	</div>
+	<!-- Output full-window di webGl -->
+	<div id="WebGL-output"></div>
+
+<!-- PROGRAMMA PRINCIPALE -->
+<script type="text/javascript">
+	//  variabili globali
+	var scene, renderer, controls, car, camera1, camera2, camera3, camera4,
+		whichCamera = 1, car, carLoaded = false, dir, gui, velocity = 0.000,
+		seed = 6, piRatio = Math.PI/180, FORWARD = false, BACKWARD = false,
+		BRAKING = false, POWER = false, maxAnisotropy, musicPlaying = false;
+
+	function main() {
+
+		// Inizializzo la SCENA e le 4 CAMERE
+		scene = new THREE.Scene();
+		camera1 = new THREE.PerspectiveCamera( 60, window.innerWidth/window.innerHeight, 1, 200000 );
+		camera2 = new THREE.PerspectiveCamera( 60, window.innerWidth/window.innerHeight, 1, 200000 );
+		camera3 = new THREE.PerspectiveCamera( 60, window.innerWidth/window.innerHeight, 1, 200000 );
+		camera4 = new THREE.PerspectiveCamera( 45, window.innerWidth/window.innerHeight, 1, 200000 );
+
+		// Vettore spostamento auto
+		dir = new THREE.Vector3(0.0, 0.0, 20.0);
+
+		// Statitiche performance
+		stats = new Stats();
+		document.getElementById("info").appendChild(stats.domElement);
+
+		// Specchietto Velocita'
+		guiParams = { speed: 0.001 };
+		gui = new dat.GUI({autoPlace: false});
+		gui.add(guiParams, "speed").name("Velocità").listen();  // richiedo che il gui refreshi il valore
+		document.getElementById("info2").appendChild(gui.domElement);
+
+		// Instanziazione renderer WebGL
+		renderer = new THREE.WebGLRenderer( { antialias: true } );
+		renderer.setSize( window.innerWidth, window.innerHeight );
+		renderer.setPixelRatio( window.devicePixelRatio );
+		renderer.setClearColor(new THREE.Color(0xffffff));
+		maxAnisotropy = renderer.getMaxAnisotropy();
+		// abilitazione ombre
+		renderer.shadowMapEnabled = true;
+		renderer.shadowMapType = THREE.PCFSoftShadowMap;
+
+		// callback per gestione del ridimensionamento finestra
+		window.addEventListener('resize', onWindowResize, false );
+
+		// callback per gestione della tastiera
+		document.onkeydown = function (ev) { keydown(ev); };
+		document.onkeyup = function (ev) { keyup(ev); };
+
+		/*-----------------------------
+		//			LUCI			 //
+		-----------------------------*/
+		scene.add( new THREE.AmbientLight(0x636363) );
+
+		var spot1Light = new THREE.SpotLight( 0xffffff, 1.0, 100000, Math.PI/2);
+		spot1Light.castShadow = true;
+		spot1Light.onlyShadow = true;
+		spot1Light.shadowCameraVisible = false;
+    	spot1Light.shadowMapWidth = 2048;
+    	spot1Light.shadowMapHeight = 2048;
+		spot1Light.shadowDarkness = 0.5;
+		spot1Light.shadowBias = -0.0005;
+		spot1Light.position.set(100, 300,-2000);
+		scene.add( spot1Light );
+
+		var spot2Light = new THREE.SpotLight( 0xffffff, 1.0, 100000, Math.PI/2);
+		spot2Light.castShadow = true;
+		spot2Light.onlyShadow = true;
+		spot2Light.shadowCameraVisible = false;
+		spot2Light.shadowMapWidth = 2048;
+		spot2Light.shadowMapHeight = 2048;
+		spot2Light.shadowDarkness = 0.5;
+		spot2Light.shadowBias = -0.0005;
+		spot2Light.position.set( -3500,500,7000);
+		scene.add( spot2Light );
+
+		var pointLight = new THREE.PointLight( 0xffffff, 0.8);
+		pointLight.position.set( 0,5000,0 );
+		scene.add( pointLight );
+
+
+		/*-----------------------------
+		//			SKYBOX			 //
+		-----------------------------*/
+		var imagePrefix = "textures/skybox/";
+		var directions  = ["xpos", "xneg", "ypos", "yneg", "zpos", "zneg"];
+		var imageSuffix = ".jpg";
+		var urls = [];
+		// composizione percorsi alle 6 immagini
+		for (var i = 0; i < 6; i++)		urls[i] = imagePrefix + directions[i] + imageSuffix;
+
+		var cubemap = THREE.ImageUtils.loadTextureCube(urls);    // caricamento textures
+		cubemap.format = THREE.RGBFormat;
+
+		var shader = THREE.ShaderLib['cube'];   // prendo cube shader dalla libreria THREE
+		shader.uniforms['tCube'].value = cubemap;    // gli passo le texture allo shader
+		var skyBoxMaterial = new THREE.ShaderMaterial( {	// creazione custom-shader
+		  fragmentShader: shader.fragmentShader,
+		  vertexShader: shader.vertexShader,
+		  uniforms: shader.uniforms,
+		  depthWrite: false,
+		  side: THREE.BackSide
+		});
+
+		var skybox = new THREE.Mesh( new THREE.BoxGeometry( 20000, 20000, 20000 ), skyBoxMaterial );
+		scene.add(skybox);
+
+
+		/*-----------------------------
+		//			AUTO			 //
+		-----------------------------*/
+		var carMaterials = [					    //cerchi,targa
+			new THREE.MeshLambertMaterial( { color: new THREE.Color('white'), side: THREE.DoubleSide } ),
+													//gomme,fendi,paraurti posteriore
+			new THREE.MeshLambertMaterial( { color: new THREE.Color('black'), side: THREE.DoubleSide } ),
+													//vetri
+			new THREE.MeshLambertMaterial( { color: new THREE.Color('black'), side: THREE.DoubleSide  } ),
+			 										//carrozzeria
+			new THREE.MeshLambertMaterial( { color: new THREE.Color('orange'), side: THREE.DoubleSide, envMap: cubemap } ),
+													//fanali dietro
+			new THREE.MeshLambertMaterial( { color: new THREE.Color('red'), side: THREE.DoubleSide  } ),
+													//fanali davanti
+			new THREE.MeshPhongMaterial( { color: new THREE.Color('red'), specular:0xffaaaa, side: THREE.DoubleSide  } ),
+													//base tergi
+			new THREE.MeshPhongMaterial( { color: new THREE.Color('yellow'), specular:0xbbaa99, shininess: 50, side: THREE.DoubleSide } ),
+		];
+		var multiMat = new THREE.MeshFaceMaterial(carMaterials);
+
+		// caricamento modello 3D
+		var loader = new THREE.BinaryLoader();
+		loader.load( "gallardo/GallardoNoUv_bin.js", function( geometry ) {
+				geometry.computeFaceNormals();
+				geometry.computeVertexNormals();
+				car = new THREE.Mesh(geometry, multiMat);
+				car.position.set(0, -89.5 ,0);
+				car.scale.set(0.2,0.2,0.2);
+				car.castShadow = true;
+				car.receiveShadow = true;
+				scene.add(car);
+
+				// gestione delle chase-camera
+				car.add(camera1);
+				camera1.position.set(0.0, 150.0, -600.0); // offset relativo all'auto
+				camera1.lookAt(car.position);
+
+				car.add(camera2);
+				camera2.position.set(0.0, 100.0, -400.0);
+				camera2.lookAt(new THREE.Vector3(car.position.x, car.position.y, car.position.z + 500));
+
+				car.add(camera3);
+				camera3.position.set(0.0, 80.0, 50.0);
+				camera3.lookAt(new THREE.Vector3(car.position.x, car.position.y - 50, car.position.z + 500));
+
+				camera4.lookAt(car.position);
+				carLoaded = true;     // flag di fine caricamento
+			} );
+
+
+		/*-----------------------------
+		//			AMBIENTE		 //
+		-----------------------------*/
+		// 1) Pavimento Erboso
+		var geoFloor = new THREE.PlaneBufferGeometry(15000,15000);
+		var texFloor = THREE.ImageUtils.loadTexture("textures/grasslight-big.jpg");
+		texFloor.minFilter = texFloor.magFilter = THREE.LinearFilter;
+		texFloor.wrapS = texFloor.wrapT = THREE.RepeatWrapping;
+		texFloor.anisotropy = maxAnisotropy;
+		texFloor.repeat.set(20,20);
+
+		var bumpFloor = THREE.ImageUtils.loadTexture("textures/grasslight-big-nm.jpg");
+		bumpFloor.minFilter = bumpFloor.magFilter = THREE.LinearFilter;
+		bumpFloor.wrapS = bumpFloor.wrapT = THREE.RepeatWrapping;
+		bumpFloor.anisotropy = maxAnisotropy;
+		bumpFloor.repeat.set(20,20);
+
+		var matFloor = new THREE.MeshPhongMaterial({color: 0xffffff,
+			map: texFloor,
+			normalMap: bumpFloor, normalScale: new THREE.Vector2(0.9,0.9),  // parametri normal-mapping
+			polygonOffset: true, polygonOffsetFactor: 10, polygonOffsetUnits: 4.0, // anti artifatti sovrapposizione
+			shading: THREE.SmoothShading, side: THREE.BackSide});
+
+		var floor = new THREE.Mesh(geoFloor, matFloor);
+		floor.rotation.x += Math.PI / 2;
+		floor.position.set(0,-100,0);
+		floor.receiveShadow = true;
+		scene.add(floor);
+
+		// 2) Circuito
+		var trackObj = track();
+		trackObj.scale.set(8,8,8);
+		trackObj.position.set(1100,-140,0);
+		scene.add(trackObj);
+
+		// 3) Piante circostanti
+		var plants = vegetation();
+		scene.add(plants);
+
+		// 4) Palazzi
+		var city = buildings();
+		city.castShadow = true;
+		scene.add(city);
+
+		// 5) Didascalia Nome Circuito
+		var geometry = new THREE.TextGeometry( "SKYTrack", {
+	          size: 200, height: 50, curveSegments: 15,
+	          font: "helvetiker", weight: "bold", material: 0, extrudeMaterial: 1,
+	          bevelEnabled: true, bevelThickness: 5 , bevelSize: 5
+	      });
+		var textMat = [
+				new THREE.MeshPhongMaterial({color: 0xd5d19a, specular: 0xd73c7c}),
+				new THREE.MeshPhongMaterial({color: 0xa87232, specular: 0xd2ba3a})
+		];
+	    var text = new THREE.Mesh(geometry, new THREE.MeshFaceMaterial(textMat));
+		text.castShadow = true;
+		text.rotation.y -= (Math.PI/2 + Math.PI/4);
+		text.position.set(2500,-80,-500);
+	    scene.add(text);
+		// dopo aver posizionato il testo sulla scena, lo illumino con spotlight
+		spot1Light.target = text;
+
+		// caricamento oggetti per gestione sonoro
+		listener = new THREE.AudioListener();
+		sound1 = new THREE.Audio( listener );
+		sound1.load( "sounds/car_startup.mp3" );
+		sound2 = new THREE.Audio( listener );
+		sound2.load( "sounds/game_theme.wav" );
+
+		keymapping = [];  // Array globale per rilascio/pressione tasti movimento auto
+		var angle = 0;  // angolo di rotazione camera 4
+
+		render = function () {	 // ciclo di refresh - rendering
+			requestAnimationFrame(render);
+			stats.update();
+			angle += Math.PI / 512;
+
+			if (carLoaded) {
+										// rotazione camera 4 intorno all'auto
+				camera4.position.x = car.position.x + (Math.sin(angle) * 100) ;
+				camera4.position.z = car.position.z + (Math.cos(angle) * 100) ;
+				camera4.lookAt(car.position);
+															// riposizionamento x uscita dal piano
+				if ( car.position.x > 7500 || car.position.x < -7500 ||	car.position.z > 7500 || car.position.z < -7500 ) {
+					 car.position.set(0,-89.5,0);
+					 velocity = 0.0;
+					 POWER = false; FORWARD = false; BACKWARD = false;
+				}
+
+			}
+
+			// Gestione movimento auto
+			if (POWER) {
+				if (FORWARD) {		// sposto auto secondo vettore dir
+					car.position.x += dir.x * velocity;
+					car.position.z += dir.z * velocity;
+					if (keymapping[65]) {  // se sto premendo anche A, ruoto anche
+						rotateY(dir, 4.0);
+		                car.rotation.y += toRadians(4.0);
+					} else if (keymapping[68]){ // pressione di D in corso
+						rotateY(dir, -4.0);
+		                car.rotation.y += toRadians(-4.0);
+					}
+				} else if (BACKWARD) {
+					car.position.x += dir.x * velocity;
+					car.position.z += dir.z * velocity;
+					if (keymapping[65]) {
+						rotateY(dir, 4.0);
+						car.rotation.y += toRadians(4.0);
+					} else if (keymapping[68]){
+						rotateY(dir, -4.0);
+						car.rotation.y += toRadians(-4.0);
+					}
+				}
+
+				if (BRAKING && FORWARD) {  // implementazione freno motore
+					velocity = (velocity >= 0.003) ? velocity - 0.003 : 0.0;
+					velocity = Math.round(velocity * 1000) / 1000;  //arrontondamento alle prime 3 cifre decimali
+					if      ( velocity > 0.0)		{ POWER = true;  FORWARD = true;  BACKWARD = false; }
+					else if ( velocity == 0.0)		{ POWER = false; FORWARD = false; BACKWARD = false; }
+					else 			     			{ POWER = true;  FORWARD = false; BACKWARD = true;  }
+				}
+			}
+			guiParams.speed = velocity * 100;  // aggiorno dat.GUI
+
+			// Scelta da quale camera renderizzare
+			if 		( whichCamera == 1)
+				renderer.render(scene, camera1);
+			else if ( whichCamera == 2)
+				renderer.render(scene, camera2);
+			else if ( whichCamera == 3)
+				renderer.render(scene, camera3);
+			else {
+				renderer.render(scene, camera4);
+				velocity = 0.0;		// tengo auto ferma
+				POWER = false;
+			}
+		}
+	}
+
+
+	/* Funzione di transizione da schermata comandi iniziali al gioco vero e proprio
+	 */
+	function gameOn () {
+		document.getElementById("loading").style.display = "none";
+		document.getElementById("WebGL-output").appendChild(renderer.domElement);
+		sound2.autoplay = true;
+		sound2.play();		 // avvio colonna sonora
+		musicPlaying = true;
+		render();
+	}
+
+
+	/*  Funzione di gestione rilascio tastiera
+	 */
+	function keyup (ev) {
+		switch(ev.keyCode) {
+			case 87: // W - Accelerazione
+			case 83: // S - Frenata
+			case 65: // A - Sterzo sinistra
+			case 68: // D - Sterzo destra
+				keymapping[ev.keyCode] = false;
+			break;
+			default: break;
+		}
+		if (ev.keyCode == 87)
+			BRAKING = true;
+	}
+
+
+	/*  Funzione di gestione pressione tastiera
+	 */
+	function keydown (ev) {
+		switch(ev.keyCode) {
+			case 87: // W - Accelerazione
+			case 83: // S - Frenata
+			case 65: // A - Sterzo sinistra
+			case 68: // D - Sterzo destra
+				keymapping[ev.keyCode] = true;
+			break;
+
+			case 81: // Q - Toggle Colonna Sonora
+				if (musicPlaying) {
+					sound2.pause();
+					musicPlaying = false;
+				} else {
+					sound2.play();
+					musicPlaying = true;
+				}
+			break;
+
+			case 49: // 1 - Cambio a camera 1
+				whichCamera = 1;
+			break;
+			case 50: // 2 - Cambio a camera 2
+				whichCamera = 2;
+			break;
+			case 51: // 3 - Cambio a camera 3
+				whichCamera = 3;
+			break;
+			case 52: // 4 - Cambio a camera 4
+				whichCamera = 4;
+				velocity = 0.0;  // fermo l'auto per osservarla
+			break;
+
+			default: return; break;
+		}
+
+		if (ev.keyCode == 87) {  // Incremento la velocita'
+			if (velocity == 0.0)	sound1.play();  // suono accensione motore
+				velocity += (velocity > 3.0) ? 0.0 : 0.15;
+				BRAKING = false;	// no freno motore
+		} else if (ev.keyCode==83) {  // Decelerazione/Retromarcia
+			velocity -= (velocity < -0.5) ? 0.0 : 0.2;
+		}
+
+		velocity = Math.round(velocity * 1000) / 1000;
+		if      ( velocity > 0.0)		{ POWER = true;  FORWARD = true;  BACKWARD = false; }
+		else if ( velocity == 0.0)		{ POWER = false; FORWARD = false; BACKWARD = false; }
+		else 			     			{ POWER = true;  FORWARD = false; BACKWARD = true;  }
+	}
+
+
+	/* Funzione generatrice di sequenze di numeri pseudo-casuali
+	*/
+	function seededRandom (max, min) {
+		max = max || 1;
+		min = min || 0;
+		seed = (seed * 9301 + 49297) % 233280;
+		var rnd = seed / 233280.0;
+		return min + rnd * (max - min);
+	}
+
+
+	//  Funzione di utility per conversione gradi-radianti
+	function toRadians (degrees) {	return degrees * piRatio; }
+
+
+	/*  Funzione per la rotazione rispetto ad asse Y della direzione di un vettore
+	 */
+	function rotateY (dir, angle) {
+		var theta = angle * piRatio;
+		var xx =  dir.x * Math.cos(theta) + dir.z * Math.sin(theta);
+		var zz = -dir.x * Math.sin(theta) + dir.z * Math.cos(theta);
+		dir.x = xx;
+		dir.z = zz;
+	}
+
+
+	// Funzione che gestisce 'resizing' della finestra
+	function onWindowResize() {
+		var canvasWidth = window.innerWidth;
+		var canvasHeight = window.innerHeight;
+		renderer.setSize( canvasWidth, canvasHeight );
+		camera1.aspect = canvasWidth/ canvasHeight;
+		camera1.updateProjectionMatrix();
+		camera2.aspect = canvasWidth/ canvasHeight;
+		camera2.updateProjectionMatrix();
+		camera3.aspect = canvasWidth/ canvasHeight;
+		camera3.updateProjectionMatrix();
+		camera4.aspect = canvasWidth/ canvasHeight;
+		camera4.updateProjectionMatrix();
+	}
+
+
+/*-------------------	 FUNZIONI DI COSTRUZIONE   --------------------*/
+	function buildings () {
+		var city = new THREE.Object3D();
+		var geometry, material, texture, mesh;
+		seed = 17;
+										// parametri edificio
+		build = function getBuilding (geoWidth, geoHeight, geoDepth,
+							  		  _color, texPath, posY,
+						  	  		  posMaxX, posMinX, posMaxZ, posMinZ) {
+		  	// geometria palazzo
+			geometry = new THREE.BoxGeometry(geoWidth, geoHeight, geoDepth);
+			// rimozione uv mapping faccia superiore->tetto
+			geometry.faceVertexUvs[0][4][0].set( 0, 0 );
+			geometry.faceVertexUvs[0][4][1].set( 0, 0 );
+			geometry.faceVertexUvs[0][4][2].set( 0, 0 );
+			geometry.faceVertexUvs[0][5][0].set( 0, 0 );
+			geometry.faceVertexUvs[0][5][1].set( 0, 0 );
+			geometry.faceVertexUvs[0][5][2].set( 0, 0 );
+
+			// caricamento texture finestre e cornicioni
+			texture = THREE.ImageUtils.loadTexture(texPath);
+			texture.minFilter = texture.magFilter = THREE.LinearFilter;
+			texture.anisotropy = maxAnisotropy;
+
+			// creazione del materiale palazzo
+			material = new THREE.MeshLambertMaterial({color: _color, side: THREE.DoubleSide, map: texture});
+
+			// instanziazione mesh che proietta ombre
+			mesh = new THREE.Mesh(geometry, material);
+			mesh.castShadow = true;
+			// posizionamento casuale all'interno perimetro circuito
+			// aggiunta all'Object3D che contiene edifici
+			mesh.position.set(seededRandom(posMaxX,posMinX),posY,seededRandom(posMaxZ,posMinZ));
+			city.add(mesh);
+		};
+
+		for (var i = 0; i < 3; i++) { // Costruzione di 9 palazzi
+			build(500,1400,500,  0x474550,"textures/Building_texture3.jpg",300,  -1900,-500,  -2000,5000);
+			build(200,1000,200,  0xad9aa0,"textures/Building_texture5.jpg",300,  -1900,-500,  -2000,5000);
+			build(500,800,300,   0xffffff,"textures/buildings_buildings_0108_02_preview.jpg",300,  -1900,-500,  -2000,5000);
+		}
+
+		seed = 5;
+
+		for (var i = 0; i < 3; i++) {
+			build(200,500,200,  0xad9aa0,"textures/building-texture1.jpg",100,  -1000,2000,  2500,4800);
+			build(300,800,600,  0xffffff,"textures/Building_texture4.jpg",300,  -1000,2000,  2500,4800);
+		}
+		return city;
+	}
+
+
+	function vegetation () {
+		var vegetation = new THREE.Object3D();
+		var treeMaterials = [], bushMaterials = [], tex;
+
+		// Caricamento e salvataggio di tutte gli sprite material
+		tex = THREE.ImageUtils.loadTexture("textures/tree.png"); // Immagini con canale ALPHA
+		tex.minFilter = tex.magFilter = THREE.LinearFilter;
+		treeMaterials.push(new THREE.SpriteMaterial({map: tex}) );
+
+		tex = THREE.ImageUtils.loadTexture("textures/tree_PNG224.png");
+		tex.minFilter = tex.magFilter = THREE.LinearFilter;
+		treeMaterials.push(new THREE.SpriteMaterial({map: tex}) );
+
+		tex = THREE.ImageUtils.loadTexture("textures/hackberry_tree_20131230_1040936985.png");
+		tex.minFilter = tex.magFilter = THREE.LinearFilter;
+		treeMaterials.push(new THREE.SpriteMaterial({map: tex}) );
+
+		tex = THREE.ImageUtils.loadTexture("textures/bush_04_.png");
+		tex.minFilter = tex.magFilter = THREE.LinearFilter;
+		bushMaterials.push(new THREE.SpriteMaterial({map: tex}) );
+
+		tex = THREE.ImageUtils.loadTexture("textures/bush_PNG7202.png");
+		tex.minFilter = tex.magFilter = THREE.LinearFilter;
+		bushMaterials.push(new THREE.SpriteMaterial({map: tex}) );
+
+		// Funzione costruzione sprite. @input: tipo sprite, parametri relativi range di posizionamento
+		plant = function getPlant(isTree, posMaxX, posMinX, posMaxZ, posMinZ) {
+			if (isTree) {
+			var p = new THREE.Sprite( treeMaterials[Math.round(Math.random() * 2)] ); // immagine casuale
+			p.position.set( seededRandom(posMaxX, posMinX), -40, seededRandom(posMaxZ, posMinZ) ); // posizione casuale
+			p.scale.set( 700, 700, 1.0 ); // scala larghezza,altezza immagine
+			} else {
+			var p = new THREE.Sprite( bushMaterials[Math.round(Math.random())] );
+			p.position.set( seededRandom(posMaxX, posMinX), -65, seededRandom(posMaxZ, posMinZ) );
+			p.scale.set( 500, 500, 1.0 );
+			}
+			vegetation.add( p );
+		};
+
+		for (var i = 0; i < 100; i++) { // Lato sinistro
+			plant(true, 7500,4500, 7000,-7000);
+			plant(false, 7500,4500, 7000,-7000);
+		}
+
+		for (var i = 0; i < 100; i++) { // Lato destro
+			plant(true, -3500,-7000, 7000,-7000);
+			plant(false, -3500,-7000, 7000,-7000);
+		}
+
+		for (var i = 0; i < 50; i++) {  // Lato dietro
+			plant(true, -7000,7000, -5500,-7000);
+			plant(false, -7000,7000, -5500,-7000);
+		}
+
+		for (var i = 0; i < 25; i++) {  // Lato avanti
+			plant(true, -5000,5000, 6500,7000);
+			plant(true, -5000,5000, 6500,7000);
+		}
+		return vegetation;
+	}
+
+
+	function track () {
+		var totalGeometry = new THREE.Geometry(); // circuito finale
+		var mesh, meshes = [];
+
+		var tAsphalt = THREE.ImageUtils.loadTexture("textures/PRS-2-New-with-light-wear-close.jpg");
+		tAsphalt.minFilter = THREE.LinearFilter;
+		tAsphalt.magFilter = THREE.LinearFilter;
+		tAsphalt.anisotropy = maxAnisotropy;
+		tAsphalt.wrapS = tAsphalt.wrapT = THREE.ClampToEdgeWrapping;
+
+		// depthWrite per evitare artifatti nello z-buffer, polygonOffset per sovrapposizione prato
+		var material = new THREE.MeshPhongMaterial({color: 0x665a5a, map: tAsphalt, shading: THREE.SmoothShading,
+			 side: THREE.DoubleSide, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -10, polygonOffsetUnits: 4.0});
+
+		// Creazione segmenti della pista
+		mesh = new THREE.Mesh( new THREE.PlaneGeometry( 50, 1025 ), material);
+		mesh.rotation.x += Math.PI / 2;
+		mesh.position.set(-500,5,261);
+		meshes.push(mesh);
+
+		mesh = new THREE.Mesh( new THREE.RingGeometry( 75, 25, 30, 30, 1.5, 1.57 ), material);
+		mesh.rotation.x += Math.PI / 2;
+		mesh.rotation.z += Math.PI / 2;
+		mesh.position.set(-450,5,-250);
+		meshes.push(mesh);
+
+		mesh = new THREE.Mesh( new THREE.PlaneGeometry( 50, 150 ), material);
+		mesh.rotation.x += Math.PI / 2;
+		mesh.rotation.z += Math.PI / 2;
+		mesh.position.set(-380,5,-300);
+		meshes.push(mesh);
+
+		mesh = new THREE.Mesh( new THREE.RingGeometry( 75, 25, 30, 30, 0, 1.57 ), material);
+		mesh.rotation.x += Math.PI / 2;
+		mesh.position.set(-310,5,-350);
+		meshes.push(mesh);
+
+		mesh = new THREE.Mesh( new THREE.PlaneGeometry( 50, 200 ), material);
+		mesh.rotation.x += Math.PI / 2;
+		mesh.position.set(-260,5,-450);
+		meshes.push(mesh);
+
+		mesh = new THREE.Mesh( new THREE.RingGeometry( 75, 25, 30, 30, 1.5, 3.15 ), material);
+		mesh.rotation.x += Math.PI / 2;
+		mesh.rotation.z += Math.PI / 2;
+		mesh.position.set(-210,5,-550);
+		meshes.push(mesh);
+
+		mesh = new THREE.Mesh( new THREE.PlaneGeometry( 50, 700 ), material);
+		mesh.rotation.x += Math.PI / 2;
+		mesh.position.set(-160,5,-205);
+		meshes.push(mesh);
+
+		mesh = new THREE.Mesh( new THREE.RingGeometry( 150, 100, 30, 30, 1.9, 1.25 ), material);
+		mesh.rotation.x += Math.PI / 2;
+		mesh.position.set(-35,5,145);
+		meshes.push(mesh);
+
+		mesh = new THREE.Mesh( new THREE.PlaneGeometry( 50, 200 ), material);
+		mesh.rotation.x += Math.PI / 2;
+		mesh.rotation.z -= Math.PI / 3 + 0.285;
+		mesh.position.set(20,5,287);
+		meshes.push(mesh);
+
+		mesh = new THREE.Mesh( new THREE.RingGeometry( 250, 200, 30, 30, 5, 2.75 ), material);
+		mesh.rotation.x += Math.PI / 2;
+		mesh.position.set(50,5,525);
+		meshes.push(mesh);
+
+		mesh = new THREE.Mesh( new THREE.PlaneGeometry( 50, 560 ), material);
+		mesh.rotation.x += Math.PI / 2;
+		mesh.rotation.z += Math.PI / 2;
+		mesh.position.set(-205,5,748.5);
+		meshes.push(mesh);
+
+		// fondo insieme le geometrie delle mesh dentro a meshes
+		for ( var i in meshes ) {
+			meshes[i].updateMatrix();
+			totalGeometry.merge(meshes[i].geometry, meshes[i].matrix);
+			meshes[i].geometry.dispose(); // mi libero dei vecchi poligoni
+		}
+		totalGeometry.mergeVertices();
+
+		mesh = new THREE.Mesh(totalGeometry, material);
+		mesh.receiveShadow = true;
+		return mesh; // la mesh contenente il circuito in tutti i suoi segmenti
+	}
+</script>
+
+</body>
+
+</html>
